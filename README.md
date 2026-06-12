@@ -1,4 +1,4 @@
-# CSV Plotter
+# EIS Impedance Plotter
 
 This project contains Python tools for plotting spreadsheet data.
 

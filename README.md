@@ -50,7 +50,7 @@ Impedance
 Impedance Magnitude
 ```
 
-## Clone and Run on Another Computer
+## Clone and Run on Local Machine
 
 On a different computer, first make sure Python and Git are installed.
 

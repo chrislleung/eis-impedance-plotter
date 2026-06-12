@@ -50,7 +50,46 @@ Impedance
 Impedance Magnitude
 ```
 
-## Installation
+## Clone and Run on Another Computer
+
+On a different computer, first make sure Python and Git are installed.
+
+Clone this repository:
+
+```bash
+git clone https://github.com/chrislleung/eis-impedance-plotter.git
+cd eis-impedance-plotter
+```
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+.\.venv\Scripts\activate
+```
+
+On macOS or Linux, activate it with:
+
+```bash
+source .venv/bin/activate
+```
+
+Install the required packages:
+
+```bash
+pip install -r requirements.txt
+```
+
+Put your Excel or CSV data file in the project folder, or in a folder such as
+`data/`. Then run:
+
+```bash
+python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days"
+```
+
+The generated plot images will be saved in the `plots/` folder.
+
+## Local Setup
 
 Create and activate a virtual environment if you want one:
 

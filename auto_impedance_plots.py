@@ -28,6 +28,7 @@ from typing import Dict, List, Optional, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FuncFormatter
 
 # Use consistent publication-style typography for every generated figure.
 plt.rcParams["font.family"] = "Times New Roman"
@@ -353,6 +354,87 @@ def style_axis(ax: plt.Axes) -> None:
         spine.set_linewidth(1.2)
 
 
+def choose_scientific_scale(values: object) -> int:
+    """Choose a power of ten that makes large tick values easy to read.
+
+    For example, data reaching 8,000,000,000 returns 9, so the displayed
+    values can be divided by 10^9. Values below 1,000 need no scaling and
+    return zero.
+    """
+    numeric_values = np.asarray(values, dtype=float)
+    finite_values = numeric_values[np.isfinite(numeric_values)]
+    if finite_values.size == 0:
+        return 0
+
+    largest_value = np.max(np.abs(finite_values))
+    if largest_value == 0:
+        return 0
+
+    exponent = int(np.floor(np.log10(largest_value)))
+    return exponent if exponent >= 3 else 0
+
+
+def format_scaled_axis_label(
+    base_label: str,
+    unit: Optional[str],
+    exponent: int,
+) -> str:
+    r"""Return a mathtext label with scaling before the slash and unit.
+
+    For example, an exponent of 9 produces
+    ``Z' × 10^9 / Ω``. With an exponent of zero, it produces ``Z' / Ω``.
+    The unit should use mathtext notation, such as ``r"\Omega"``.
+    """
+    quantity = base_label
+    if exponent:
+        quantity = rf"{quantity} \times 10^{{{exponent}}}"
+
+    if unit:
+        quantity = rf"{quantity} \,/\, {unit}"
+
+    return rf"${quantity}$"
+
+
+def apply_scaled_axis(
+    ax: plt.Axes,
+    axis: str,
+    values: object,
+    base_label: str,
+    unit: Optional[str] = None,
+) -> int:
+    """Scale linear-axis ticks and put the power of ten in the axis label."""
+    exponent = choose_scientific_scale(values)
+    axis_object = ax.xaxis if axis == "x" else ax.yaxis
+
+    if exponent:
+        scale = 10.0 ** exponent
+
+        def format_scaled_tick(value: float, _position: int) -> str:
+            scaled_value = value / scale
+            # Avoid displaying a distracting negative zero near the origin.
+            if abs(scaled_value) < 1e-12:
+                scaled_value = 0.0
+            return f"{scaled_value:g}"
+
+        axis_object.set_major_formatter(FuncFormatter(format_scaled_tick))
+    else:
+        # Plain formatting also suppresses Matplotlib's corner offset text.
+        axis_object.set_major_formatter(FuncFormatter(lambda value, _position: f"{value:g}"))
+
+    label = format_scaled_axis_label(base_label, unit, exponent)
+    axis_object.set_label_text(label)
+    axis_object.offsetText.set_visible(False)
+    return exponent
+
+
+def collect_axis_values(blocks: List[BlockData], column: str) -> np.ndarray:
+    """Collect valid values from one plotting column across all samples."""
+    series = [block.data[column].dropna() for block in blocks]
+    if not series:
+        return np.array([], dtype=float)
+    return pd.concat(series, ignore_index=True).to_numpy(dtype=float)
+
+
 def draw_blocks_on_axes(
     ax: plt.Axes,
     blocks: List[BlockData],
@@ -377,13 +459,9 @@ def draw_blocks_on_axes(
 def finish_and_save_plot(
     fig: plt.Figure,
     ax: plt.Axes,
-    x_label: str,
-    y_label: str,
     output_path: Path,
 ) -> None:
     """Apply common plot formatting and save at high resolution."""
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
     style_axis(ax)
 
     handles, labels = ax.get_legend_handles_labels()
@@ -403,13 +481,21 @@ def save_combined_scatter_plot(
     x_label: str,
     y_label: str,
     output_path: Path,
+    scientific_axis_labels: bool = False,
 ) -> None:
     """Save one combined scatter plot with every sample on the same axes."""
     # The extra width leaves room for a legend beside the square graph panel.
     fig, ax = plt.subplots(figsize=(8.5, 6))
 
     draw_blocks_on_axes(ax, blocks, x_col, y_col)
-    finish_and_save_plot(fig, ax, x_label, y_label, output_path)
+    if scientific_axis_labels:
+        apply_scaled_axis(ax, "x", collect_axis_values(blocks, x_col), "Z'", r"\Omega")
+        apply_scaled_axis(ax, "y", collect_axis_values(blocks, y_col), "-Z''", r"\Omega")
+    else:
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+
+    finish_and_save_plot(fig, ax, output_path)
 
 
 def get_zoom_limits(blocks: List[BlockData], percentile: float) -> Tuple[Optional[float], Optional[float]]:
@@ -451,13 +537,19 @@ def save_nyquist_logscale_plot(
     draw_blocks_on_axes(ax, blocks, "z_prime", "neg_z_double_prime", positive_only=True)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    finish_and_save_plot(fig, ax, "Z' / Ω", "-Z'' / Ω", output_path)
+    ax.set_xlabel("Z' / Ω")
+    ax.set_ylabel("-Z'' / Ω")
+    # Logarithmic tick formatting is clearest when left to Matplotlib.
+    ax.xaxis.offsetText.set_visible(False)
+    ax.yaxis.offsetText.set_visible(False)
+    finish_and_save_plot(fig, ax, output_path)
 
 
 def save_nyquist_zoomed_plot(
     blocks: List[BlockData],
     output_path: Path,
     zoom_percentile: float,
+    scientific_axis_labels: bool,
 ) -> None:
     """Save a Nyquist plot zoomed to ignore the largest outliers."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
@@ -470,7 +562,20 @@ def save_nyquist_zoomed_plot(
     if y_limit is not None:
         ax.set_ylim(bottom=0, top=y_limit)
 
-    finish_and_save_plot(fig, ax, "Z' / Ω", "-Z'' / Ω", output_path)
+    if scientific_axis_labels:
+        x_values = collect_axis_values(blocks, "z_prime")
+        y_values = collect_axis_values(blocks, "neg_z_double_prime")
+        if x_limit is not None:
+            x_values = x_values[(x_values >= 0) & (x_values <= x_limit)]
+        if y_limit is not None:
+            y_values = y_values[(y_values >= 0) & (y_values <= y_limit)]
+        apply_scaled_axis(ax, "x", x_values, "Z'", r"\Omega")
+        apply_scaled_axis(ax, "y", y_values, "-Z''", r"\Omega")
+    else:
+        ax.set_xlabel("Z' / Ω")
+        ax.set_ylabel("-Z'' / Ω")
+
+    finish_and_save_plot(fig, ax, output_path)
 
 
 def plot_combined_blocks(
@@ -478,6 +583,7 @@ def plot_combined_blocks(
     out_dir: Path,
     plot_name: Optional[str] = None,
     zoom_percentile: float = 90,
+    scientific_axis_labels: bool = True,
 ) -> List[Path]:
     """Create the combined scatter plots."""
     filename_base = safe_filename_base(plot_name) if plot_name else "combined"
@@ -492,6 +598,7 @@ def plot_combined_blocks(
         "Z' / Ω",
         "-Z'' / Ω",
         normal_nyquist_path,
+        scientific_axis_labels=scientific_axis_labels,
     )
     saved_paths.append(normal_nyquist_path)
 
@@ -507,6 +614,7 @@ def plot_combined_blocks(
         blocks,
         zoomed_nyquist_path,
         zoom_percentile,
+        scientific_axis_labels,
     )
     saved_paths.append(zoomed_nyquist_path)
 
@@ -594,6 +702,20 @@ def main() -> None:
         default=90,
         help="Percentile used for zoomed Nyquist axis limits. Default: 90.",
     )
+    scientific_group = parser.add_mutually_exclusive_group()
+    scientific_group.add_argument(
+        "--scientific-axis-labels",
+        dest="scientific_axis_labels",
+        action="store_true",
+        help="Put automatic powers of ten in linear Nyquist axis labels (default).",
+    )
+    scientific_group.add_argument(
+        "--no-scientific-axis-labels",
+        dest="scientific_axis_labels",
+        action="store_false",
+        help="Use Matplotlib's standard linear Nyquist axis formatting.",
+    )
+    parser.set_defaults(scientific_axis_labels=True)
 
     args = parser.parse_args()
 
@@ -623,6 +745,7 @@ def main() -> None:
         out_dir,
         plot_name=args.name,
         zoom_percentile=args.zoom_percentile,
+        scientific_axis_labels=args.scientific_axis_labels,
     )
 
     cleaned_path = None

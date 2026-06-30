@@ -29,6 +29,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+# Use consistent publication-style typography for every generated figure.
+plt.rcParams["font.family"] = "Times New Roman"
+plt.rcParams["font.size"] = 16
+plt.rcParams["axes.labelsize"] = 16
+plt.rcParams["xtick.labelsize"] = 16
+plt.rcParams["ytick.labelsize"] = 16
+plt.rcParams["legend.fontsize"] = 12
+
 
 HEADER_ROW = 1       # second row in Excel/CSV, zero-indexed here
 DATA_START_ROW = 2   # third row in Excel/CSV, zero-indexed here
@@ -325,10 +333,24 @@ def legend_options(sample_count: int) -> Dict[str, object]:
             "bbox_to_anchor": (1.02, 1),
             "loc": "upper left",
             "borderaxespad": 0,
-            "fontsize": "small",
+            "fontsize": 12,
+            "frameon": True,
         }
 
-    return {"loc": "best", "fontsize": "small"}
+    return {"loc": "best", "fontsize": 12}
+
+
+def style_axis(ax: plt.Axes) -> None:
+    """Apply shared journal-style borders and ticks to one set of axes."""
+    ax.grid(False)
+    # Keep the graph panel square even when an outside legend uses extra room.
+    ax.set_box_aspect(1)
+    ax.tick_params(direction="in", top=True, right=True)
+
+    # A slightly heavier box keeps the plotting area crisp when printed.
+    for spine in ax.spines.values():
+        spine.set_visible(True)
+        spine.set_linewidth(1.2)
 
 
 def draw_blocks_on_axes(
@@ -357,20 +379,19 @@ def finish_and_save_plot(
     ax: plt.Axes,
     x_label: str,
     y_label: str,
-    title: str,
     output_path: Path,
 ) -> None:
     """Apply common plot formatting and save at high resolution."""
     ax.set_xlabel(x_label)
     ax.set_ylabel(y_label)
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3)
+    style_axis(ax)
 
     handles, labels = ax.get_legend_handles_labels()
     if handles:
         ax.legend(**legend_options(len(labels)))
 
     fig.tight_layout()
+    # Tight cropping retains the labels and outside legend on the wider canvas.
     fig.savefig(output_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -381,15 +402,14 @@ def save_combined_scatter_plot(
     y_col: str,
     x_label: str,
     y_label: str,
-    title: str,
     output_path: Path,
 ) -> None:
     """Save one combined scatter plot with every sample on the same axes."""
-    fig_width = 8 if len(blocks) <= 8 else 10
-    fig, ax = plt.subplots(figsize=(fig_width, 5.5))
+    # The extra width leaves room for a legend beside the square graph panel.
+    fig, ax = plt.subplots(figsize=(8.5, 6))
 
     draw_blocks_on_axes(ax, blocks, x_col, y_col)
-    finish_and_save_plot(fig, ax, x_label, y_label, title, output_path)
+    finish_and_save_plot(fig, ax, x_label, y_label, output_path)
 
 
 def get_zoom_limits(blocks: List[BlockData], percentile: float) -> Tuple[Optional[float], Optional[float]]:
@@ -423,28 +443,24 @@ def get_zoom_limits(blocks: List[BlockData], percentile: float) -> Tuple[Optiona
 
 def save_nyquist_logscale_plot(
     blocks: List[BlockData],
-    title: str,
     output_path: Path,
 ) -> None:
     """Save a log-log Nyquist plot, using only positive x and y values."""
-    fig_width = 8 if len(blocks) <= 8 else 10
-    fig, ax = plt.subplots(figsize=(fig_width, 5.5))
+    fig, ax = plt.subplots(figsize=(8.5, 6))
 
     draw_blocks_on_axes(ax, blocks, "z_prime", "neg_z_double_prime", positive_only=True)
     ax.set_xscale("log")
     ax.set_yscale("log")
-    finish_and_save_plot(fig, ax, "Z'", "-Z''", title, output_path)
+    finish_and_save_plot(fig, ax, "Z' / Ω", "-Z'' / Ω", output_path)
 
 
 def save_nyquist_zoomed_plot(
     blocks: List[BlockData],
-    title: str,
     output_path: Path,
     zoom_percentile: float,
 ) -> None:
     """Save a Nyquist plot zoomed to ignore the largest outliers."""
-    fig_width = 8 if len(blocks) <= 8 else 10
-    fig, ax = plt.subplots(figsize=(fig_width, 5.5))
+    fig, ax = plt.subplots(figsize=(8.5, 6))
 
     draw_blocks_on_axes(ax, blocks, "z_prime", "neg_z_double_prime")
 
@@ -454,7 +470,7 @@ def save_nyquist_zoomed_plot(
     if y_limit is not None:
         ax.set_ylim(bottom=0, top=y_limit)
 
-    finish_and_save_plot(fig, ax, "Z'", "-Z''", title, output_path)
+    finish_and_save_plot(fig, ax, "Z' / Ω", "-Z'' / Ω", output_path)
 
 
 def plot_combined_blocks(
@@ -465,7 +481,6 @@ def plot_combined_blocks(
 ) -> List[Path]:
     """Create the combined scatter plots."""
     filename_base = safe_filename_base(plot_name) if plot_name else "combined"
-    title_base = clean_name(plot_name) if plot_name else "Combined"
 
     saved_paths: List[Path] = []
 
@@ -474,9 +489,8 @@ def plot_combined_blocks(
         blocks,
         "z_prime",
         "neg_z_double_prime",
-        "Z'",
-        "-Z''",
-        f"{title_base} -Z'' vs Z'",
+        "Z' / Ω",
+        "-Z'' / Ω",
         normal_nyquist_path,
     )
     saved_paths.append(normal_nyquist_path)
@@ -484,7 +498,6 @@ def plot_combined_blocks(
     logscale_nyquist_path = out_dir / f"{filename_base}_zpp_vs_zp_logscale.png"
     save_nyquist_logscale_plot(
         blocks,
-        f"{title_base} -Z'' vs Z' log scale",
         logscale_nyquist_path,
     )
     saved_paths.append(logscale_nyquist_path)
@@ -492,7 +505,6 @@ def plot_combined_blocks(
     zoomed_nyquist_path = out_dir / f"{filename_base}_zpp_vs_zp_zoomed.png"
     save_nyquist_zoomed_plot(
         blocks,
-        f"{title_base} -Z'' vs Z' zoomed",
         zoomed_nyquist_path,
         zoom_percentile,
     )
@@ -503,23 +515,21 @@ def plot_combined_blocks(
             f"{filename_base}_logz_vs_logf.png",
             "log_freq",
             "log_z",
-            "log F",
-            "log Z",
-            f"{title_base} log Z vs log F",
+            "log f",
+            "log |Z|",
         ),
         (
             f"{filename_base}_theta_vs_logf.png",
             "log_freq",
             "neg_theta",
-            "log F",
-            "-theta",
-            f"{title_base} -theta vs log F",
+            "log f",
+            "-θ / degrees",
         ),
     ]
 
-    for filename, x_col, y_col, x_label, y_label, title in plots:
+    for filename, x_col, y_col, x_label, y_label in plots:
         output_path = out_dir / filename
-        save_combined_scatter_plot(blocks, x_col, y_col, x_label, y_label, title, output_path)
+        save_combined_scatter_plot(blocks, x_col, y_col, x_label, y_label, output_path)
         saved_paths.append(output_path)
 
     return saved_paths
@@ -576,7 +586,7 @@ def main() -> None:
     parser.add_argument(
         "--name",
         default=None,
-        help="Optional base name used in plot titles and output filenames, for example: '10 days'.",
+        help="Optional base name used in output filenames, for example: '10 days'.",
     )
     parser.add_argument(
         "--zoom-percentile",

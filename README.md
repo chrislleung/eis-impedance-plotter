@@ -30,8 +30,11 @@ The project also includes an older interactive helper script, `plot_csv.py`, for
   * inward ticks on all sides
   * thicker axis borders
 * Add scientific scaling directly into Nyquist axis labels
+* Use impedance units as `Ω/cm²`
+* Use frequency labels as `log F (Hz)`
 * Control raw marker size with `--marker-size`
 * Control fitted line width with `--line-width`
+* Override axis labels for specific plots
 * Export cleaned computed data with `--cleaned-csv`
 * Print debug information for header matching with `--debug-headers`
 
@@ -90,6 +93,77 @@ The script creates five PNG files:
 
 The log-scale Nyquist plot only includes rows where both `Z'` and `-Z''` are positive.
 
+With a custom name such as `"10 days"`, the output files are:
+
+```text
+plots/10_days_zpp_vs_zp.png
+plots/10_days_zpp_vs_zp_logscale.png
+plots/10_days_zpp_vs_zp_zoomed.png
+plots/10_days_logz_vs_logf.png
+plots/10_days_theta_vs_logf.png
+```
+
+## Plot Style
+
+The generated figures use a publication-style format:
+
+* Times New Roman font
+* 16 pt axis and tick labels
+* no plot titles
+* no gridlines
+* square graph/axis area
+* rectangular output image when needed to include the legend
+* inward ticks
+* ticks on all four sides
+* thicker axis spines
+* legend outside the graph area when many samples are present
+* high-resolution PNG output using `dpi=300`
+
+The graph panel itself is square, while the saved image may be rectangular so the legend can fit outside the graph.
+
+## Axis Label Defaults
+
+Default axis labels are formatted using parentheses for units.
+
+### Normal and Zoomed Nyquist Plots
+
+If no scientific scaling is needed:
+
+```text
+Z' (Ω/cm²)
+-Z'' (Ω/cm²)
+```
+
+If scientific scaling is needed:
+
+```text
+Z' × 10^x (Ω/cm²)
+-Z'' × 10^y (Ω/cm²)
+```
+
+The tick labels are manually scaled so Matplotlib does not show offset text like `1e9` or `1e10`.
+
+### Log-Scale Nyquist Plot
+
+```text
+Z' (Ω/cm²)
+-Z'' (Ω/cm²)
+```
+
+### Bode Magnitude Plot
+
+```text
+log F (Hz)
+log |Z| (Ω/cm²)
+```
+
+### Phase Plot
+
+```text
+log F (Hz)
+-θ (degrees)
+```
+
 ## Clone and Run on a Local Machine
 
 First make sure Python and Git are installed.
@@ -122,50 +196,25 @@ pip install -r requirements.txt
 
 Put your Excel or CSV data files in the project folder, or in a folder such as `data/`.
 
-## Basic One-File Usage
+## Main Commands
 
-Run the impedance plotter from the project folder:
+### One-File Workflow
 
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots
-```
-
-This saves the default combined plot files:
-
-```text
-plots/combined_zpp_vs_zp.png
-plots/combined_zpp_vs_zp_logscale.png
-plots/combined_zpp_vs_zp_zoomed.png
-plots/combined_logz_vs_logf.png
-plots/combined_theta_vs_logf.png
-```
-
-## Custom Plot Name
-
-Use `--name` to customize output filenames:
+Use this when you only have one impedance file:
 
 ```bash
 python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days"
 ```
 
-This saves:
+This creates all five output plots from one file.
 
-```text
-plots/10_days_zpp_vs_zp.png
-plots/10_days_zpp_vs_zp_logscale.png
-plots/10_days_zpp_vs_zp_zoomed.png
-plots/10_days_logz_vs_logf.png
-plots/10_days_theta_vs_logf.png
+### Two-File Fit vs Raw Workflow
+
+Use this when you have one fitted-data file and one raw/before-fitting file:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
 ```
-
-The `--name` value is converted into a safe filename by making it lowercase, replacing spaces with underscores, and removing unsafe filename characters.
-
-## Two-File Fit vs Raw Workflow
-
-The script can also compare two files:
-
-* one fitted-data file
-* one raw/unfitted-data file
 
 In this workflow:
 
@@ -173,139 +222,69 @@ In this workflow:
 * raw/unfitted data is plotted as hollow markers
 * matching samples use the same color
 
-Example:
+### Fit-Only Workflow
 
-```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
-```
-
-This creates the same five output plots, but fitted and raw data are shown together for comparison.
-
-## One File as Fit or Raw Only
-
-You can also provide only a fitted file:
+Use this when you only want to plot fitted data:
 
 ```bash
 python auto_impedance_plots.py --fit-file data/10days.xlsx --out plots --name "10 days fit"
 ```
 
-Or only a raw/unfitted file:
+### Raw-Only Workflow
+
+Use this when you only want to plot raw/unfitted data:
 
 ```bash
 python auto_impedance_plots.py --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days raw"
 ```
 
-## Marker and Line Controls
+## Command Extensions and Options
 
-Raw/unfitted data is plotted using hollow markers. To make the hollow markers smaller or larger, use `--marker-size`:
+Add these options to the main command when needed.
 
-```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --marker-size 18
-```
+### Output Folder
 
-Try smaller values if the markers are too large:
-
-```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --marker-size 12
-```
-
-Fitted data is plotted using solid lines. To adjust line thickness, use `--line-width`:
-
-```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --line-width 1.2
-```
-
-## Zoom Control
-
-The zoomed Nyquist plot uses percentile-based axis limits. The default is `90`, which means the largest 10 percent of values are ignored when setting the zoomed axis range.
-
-Change it with:
-
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days" --zoom-percentile 85
-```
-
-## Scientific Axis Labels
-
-For the normal and zoomed Nyquist plots, the script can move scientific scaling into the axis label instead of showing Matplotlib offset text like `1e9` or `1e10`.
-
-For example, instead of showing:
+Use `--out` to choose where the plots are saved.
 
 ```text
-1e9
-Z' / Ω
+--out plots
 ```
 
-the axis label is formatted like:
+Example output folder:
 
 ```text
-Z' × 10^9 / Ω
+plots/
 ```
 
-The tick labels are scaled manually, so they appear as simple values such as:
+### Custom Output Name
+
+Use `--name` to customize the output filenames.
 
 ```text
-0, 2, 4, 6, 8
+--name "10 days"
 ```
 
-rather than:
+This turns into filenames such as:
 
 ```text
-0, 2e9, 4e9, 6e9, 8e9
+10_days_zpp_vs_zp.png
+10_days_logz_vs_logf.png
 ```
 
-This formatting is mainly applied to the normal and zoomed Nyquist plots. The already-logarithmic plots keep their regular labels:
+### Excel Sheet Selection
+
+Use `--sheet` to choose a specific Excel sheet.
 
 ```text
-log f
-log |Z|
--theta / degrees
+--sheet Sheet1
 ```
 
-## Plot Style
+### Cleaned CSV Export
 
-The generated figures use a publication-style format:
+Use `--cleaned-csv` to save the cleaned computed data.
 
-* Times New Roman font
-* 16 pt axis and tick labels
-* no plot titles
-* no gridlines
-* square graph/axis area
-* rectangular output image when needed to include the legend
-* inward ticks
-* ticks on all four sides
-* thicker axis spines
-* legend outside the graph area when many samples are present
-* high-resolution PNG output using `dpi=300`
-
-The graph panel itself is square, while the saved image may be rectangular so the legend can fit outside the graph.
-
-## Excel Sheet Selection
-
-For Excel files, the first sheet is used by default. To choose a sheet:
-
-```bash
-python auto_impedance_plots.py data/10days.xlsx --sheet Sheet1 --out plots
-```
-
-This also works in two-file mode:
-
-```bash
-python auto_impedance_plots.py --fit-file data/fitted.xlsx --raw-file data/raw.xlsx --sheet Sheet1 --out plots --name "10 days"
-```
-
-## Cleaned CSV Export
-
-Use `--cleaned-csv` to save the cleaned computed data:
-
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days" --cleaned-csv
-```
-
-For two-file mode:
-
-```bash
-python auto_impedance_plots.py --fit-file data/fitted.xlsx --raw-file data/raw.xlsx --out plots --name "10 days" --cleaned-csv
+```text
+--cleaned-csv
 ```
 
 This creates:
@@ -330,74 +309,281 @@ neg_z_double_prime
 neg_theta
 ```
 
-The `source_type` column indicates whether a row came from fitted data or raw data.
+The `source_type` column indicates whether the row came from fitted data or raw data.
 
-## Debug Header Detection
+### Debug Header Detection
 
-If blocks are skipped because a header is not recognized, run with:
+Use `--debug-headers` if blocks are skipped or headers are not recognized.
 
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --debug-headers
+```text
+--debug-headers
 ```
 
 This prints each possible block's raw headers, normalized headers, and detected column type.
 
-For two-file mode:
+### Zoom Percentile
 
-```bash
-python auto_impedance_plots.py --fit-file data/fitted.xlsx --raw-file data/raw.xlsx --out plots --debug-headers
+Use `--zoom-percentile` to control the zoomed Nyquist plot.
+
+```text
+--zoom-percentile 85
 ```
 
-This is useful when a spreadsheet uses unusual column names.
+Common values:
 
-## Common Commands
-
-Basic one-file run:
-
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots
+```text
+--zoom-percentile 80
+--zoom-percentile 85
+--zoom-percentile 90
+--zoom-percentile 95
 ```
 
-Run with custom name:
+Lower values zoom in more. Higher values zoom out more.
+
+### Raw Marker Size
+
+Use `--marker-size` to control the size of hollow raw-data markers.
+
+```text
+--marker-size 12
+```
+
+Common values:
+
+```text
+--marker-size 20
+--marker-size 15
+--marker-size 12
+--marker-size 10
+--marker-size 8
+```
+
+### Fitted Line Width
+
+Use `--line-width` to control the thickness of fitted-data lines.
+
+```text
+--line-width 1.2
+```
+
+Common values:
+
+```text
+--line-width 1.5
+--line-width 1.2
+--line-width 1.0
+--line-width 0.8
+```
+
+## Custom Axis Labels
+
+The script supports custom axis labels for each graph.
+
+Only the specified graph is changed. All other graphs keep the default labels.
+
+### Normal Nyquist Plot
+
+Use these options to override the normal Nyquist labels:
+
+```text
+--xlabel-zpp-vs-zp "Custom X Label"
+--ylabel-zpp-vs-zp "Custom Y Label"
+```
+
+Example:
+
+```text
+--xlabel-zpp-vs-zp "Real Impedance"
+--ylabel-zpp-vs-zp "Imaginary Impedance"
+```
+
+### Log-Scale Nyquist Plot
+
+Use these options to override the log-scale Nyquist labels:
+
+```text
+--xlabel-zpp-vs-zp-logscale "Custom X Label"
+--ylabel-zpp-vs-zp-logscale "Custom Y Label"
+```
+
+Example:
+
+```text
+--xlabel-zpp-vs-zp-logscale "Z' (Ω/cm²)"
+--ylabel-zpp-vs-zp-logscale "-Z'' (Ω/cm²)"
+```
+
+### Zoomed Nyquist Plot
+
+Use these options to override the zoomed Nyquist labels:
+
+```text
+--xlabel-zpp-vs-zp-zoomed "Custom X Label"
+--ylabel-zpp-vs-zp-zoomed "Custom Y Label"
+```
+
+Example:
+
+```text
+--xlabel-zpp-vs-zp-zoomed "Z' (Ω/cm²)"
+--ylabel-zpp-vs-zp-zoomed "-Z'' (Ω/cm²)"
+```
+
+### Bode Magnitude Plot
+
+Use these options to override the `log Z vs log F` labels:
+
+```text
+--xlabel-logz-vs-logf "Custom X Label"
+--ylabel-logz-vs-logf "Custom Y Label"
+```
+
+Example:
+
+```text
+--xlabel-logz-vs-logf "log F (Hz)"
+--ylabel-logz-vs-logf "log |Z| (Ω/cm²)"
+```
+
+### Phase Plot
+
+Use these options to override the `-theta vs log F` labels:
+
+```text
+--xlabel-theta-vs-logf "Custom X Label"
+--ylabel-theta-vs-logf "Custom Y Label"
+```
+
+Example:
+
+```text
+--xlabel-theta-vs-logf "log F (Hz)"
+--ylabel-theta-vs-logf "-θ (degrees)"
+```
+
+## Recommended Commands
+
+### Recommended One-File Command
 
 ```bash
 python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days"
 ```
 
-Run with fitted and raw files:
+Optional extensions:
+
+```text
+--zoom-percentile 85
+--cleaned-csv
+--debug-headers
+--sheet Sheet1
+```
+
+### Recommended Two-File Command
 
 ```bash
 python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
 ```
 
-Run with smaller raw markers:
+Optional extensions:
 
-```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --marker-size 12
+```text
+--marker-size 12
+--line-width 1.0
+--zoom-percentile 85
+--cleaned-csv
+--debug-headers
+--sheet Sheet1
 ```
 
-Run with a different fitted line width:
+### Recommended Two-File Command for Cleaner Figures
 
 ```bash
-python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --line-width 1.2
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days" --marker-size 10 --line-width 1.0 --zoom-percentile 85
 ```
 
-Run with a different zoom percentile:
+Optional extensions:
 
-```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days" --zoom-percentile 85
+```text
+--cleaned-csv
+--debug-headers
+--sheet Sheet1
 ```
 
-Run with cleaned CSV export:
+## Example Custom Label Commands
+
+### Custom Bode Magnitude Labels
+
+Command:
 
 ```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --name "10 days" --cleaned-csv
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
 ```
 
-Run with debug header output:
+Add these extensions:
+
+```text
+--xlabel-logz-vs-logf "log F (Hz)"
+--ylabel-logz-vs-logf "log |Z| (Ω/cm²)"
+```
+
+### Custom Phase Labels
+
+Command:
 
 ```bash
-python auto_impedance_plots.py data/10days.xlsx --out plots --debug-headers
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xlabel-theta-vs-logf "log F (Hz)"
+--ylabel-theta-vs-logf "-θ (degrees)"
+```
+
+### Custom Normal Nyquist Labels
+
+Command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xlabel-zpp-vs-zp "Z' (Ω/cm²)"
+--ylabel-zpp-vs-zp "-Z'' (Ω/cm²)"
+```
+
+### Custom Zoomed Nyquist Labels
+
+Command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xlabel-zpp-vs-zp-zoomed "Z' (Ω/cm²)"
+--ylabel-zpp-vs-zp-zoomed "-Z'' (Ω/cm²)"
+```
+
+### Custom Log-Scale Nyquist Labels
+
+Command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xlabel-zpp-vs-zp-logscale "Z' (Ω/cm²)"
+--ylabel-zpp-vs-zp-logscale "-Z'' (Ω/cm²)"
 ```
 
 ## Generic CSV Plotter
@@ -422,7 +608,7 @@ This script is separate from the EIS-specific plotting workflow.
 
 ## Troubleshooting
 
-### Missing Excel dependency
+### Missing Excel Dependency
 
 If reading `.xlsx` files fails with an `openpyxl` error, install the project requirements:
 
@@ -430,7 +616,7 @@ If reading `.xlsx` files fails with an `openpyxl` error, install the project req
 pip install -r requirements.txt
 ```
 
-### File not found
+### File Not Found
 
 Check that the file path is written exactly as it appears in the `data/` folder.
 
@@ -453,7 +639,7 @@ Make sure there is no accidental space after the opening quote:
 " data/10days-before fitting.xlsx"    incorrect
 ```
 
-### No impedance blocks found
+### No Impedance Blocks Found
 
 Use `--debug-headers` to see how the script is reading the headers:
 
@@ -469,7 +655,7 @@ Check that each block has headers for:
 * magnitude `Z`
 * theta or phase
 
-### Small samples are hard to see
+### Small Samples Are Hard to See
 
 Use the log-scale or zoomed Nyquist output:
 
@@ -480,7 +666,7 @@ Use the log-scale or zoomed Nyquist output:
 
 Large impedance samples can make smaller samples appear compressed near the origin in the normal Nyquist plot.
 
-### Raw markers are too large
+### Raw Markers Are Too Large
 
 Use a smaller marker size:
 
@@ -488,6 +674,6 @@ Use a smaller marker size:
 python auto_impedance_plots.py --fit-file data/fitted.xlsx --raw-file data/raw.xlsx --out plots --name "comparison" --marker-size 10
 ```
 
-### Legend makes the image rectangular
+### Legend Makes the Image Rectangular
 
 This is expected. The graph panel itself is square, but the saved PNG may be rectangular so the legend can fit outside the plot area.

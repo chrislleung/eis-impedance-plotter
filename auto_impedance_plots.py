@@ -437,20 +437,21 @@ def format_scaled_axis_label(
     unit: Optional[str],
     exponent: int,
 ) -> str:
-    r"""Return a mathtext label with scaling before the slash and unit.
+    r"""Return a mathtext label with scaling before parenthesized units.
 
     For example, an exponent of 9 produces
-    ``Z' × 10^9 / Ω``. With an exponent of zero, it produces ``Z' / Ω``.
+    ``Z' × 10^9 (Ω/cm²)``. With an exponent of zero, it produces
+    ``Z' (Ω/cm²)``.
     The unit should use mathtext notation, such as ``r"\Omega"``.
     """
     quantity = base_label
     if exponent:
         quantity = rf"{quantity} \times 10^{{{exponent}}}"
 
+    quantity_label = rf"${quantity}$"
     if unit:
-        quantity = rf"{quantity} \,/\, {unit}"
-
-    return rf"${quantity}$"
+        return rf"{quantity_label} ($\Omega/\mathrm{{cm}}^{{2}}$)"
+    return quantity_label
 
 
 def apply_scaled_axis(
@@ -459,8 +460,9 @@ def apply_scaled_axis(
     values: object,
     base_label: str,
     unit: Optional[str] = None,
+    custom_label: Optional[str] = None,
 ) -> int:
-    """Scale linear-axis ticks and put the power of ten in the axis label."""
+    """Scale linear-axis ticks and set either a generated or custom label."""
     exponent = choose_scientific_scale(values)
     axis_object = ax.xaxis if axis == "x" else ax.yaxis
 
@@ -479,7 +481,8 @@ def apply_scaled_axis(
         # Plain formatting also suppresses Matplotlib's corner offset text.
         axis_object.set_major_formatter(FuncFormatter(lambda value, _position: f"{value:g}"))
 
-    label = format_scaled_axis_label(base_label, unit, exponent)
+    # A command-line override controls label text only; tick scaling is kept.
+    label = custom_label if custom_label is not None else format_scaled_axis_label(base_label, unit, exponent)
     axis_object.set_label_text(label)
     axis_object.offsetText.set_visible(False)
     return exponent
@@ -567,6 +570,8 @@ def save_combined_scatter_plot(
     marker_map: Optional[Dict[str, str]] = None,
     marker_size: float = 20,
     line_width: float = 1.5,
+    custom_x_label: Optional[str] = None,
+    custom_y_label: Optional[str] = None,
 ) -> None:
     """Save one combined scatter plot with every sample on the same axes."""
     # The extra width leaves room for a legend beside the square graph panel.
@@ -577,11 +582,11 @@ def save_combined_scatter_plot(
         marker_size=marker_size, line_width=line_width,
     )
     if scientific_axis_labels:
-        apply_scaled_axis(ax, "x", collect_axis_values(blocks, x_col), "Z'", r"\Omega")
-        apply_scaled_axis(ax, "y", collect_axis_values(blocks, y_col), "-Z''", r"\Omega")
+        apply_scaled_axis(ax, "x", collect_axis_values(blocks, x_col), "Z'", r"\Omega", custom_x_label)
+        apply_scaled_axis(ax, "y", collect_axis_values(blocks, y_col), "-Z''", r"\Omega", custom_y_label)
     else:
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
+        ax.set_xlabel(custom_x_label if custom_x_label is not None else x_label)
+        ax.set_ylabel(custom_y_label if custom_y_label is not None else y_label)
 
     finish_and_save_plot(fig, ax, output_path)
 
@@ -622,6 +627,8 @@ def save_nyquist_logscale_plot(
     marker_map: Dict[str, str],
     marker_size: float = 20,
     line_width: float = 1.5,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
 ) -> None:
     """Save a log-log Nyquist plot, using only positive x and y values."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
@@ -633,8 +640,8 @@ def save_nyquist_logscale_plot(
     )
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("Z' / Ω")
-    ax.set_ylabel("-Z'' / Ω")
+    ax.set_xlabel(x_label if x_label is not None else r"$Z'$ ($\Omega/\mathrm{cm}^{2}$)")
+    ax.set_ylabel(y_label if y_label is not None else r"$-Z''$ ($\Omega/\mathrm{cm}^{2}$)")
     # Logarithmic tick formatting is clearest when left to Matplotlib.
     ax.xaxis.offsetText.set_visible(False)
     ax.yaxis.offsetText.set_visible(False)
@@ -650,6 +657,8 @@ def save_nyquist_zoomed_plot(
     marker_map: Dict[str, str],
     marker_size: float = 20,
     line_width: float = 1.5,
+    x_label: Optional[str] = None,
+    y_label: Optional[str] = None,
 ) -> None:
     """Save a Nyquist plot zoomed to ignore the largest outliers."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
@@ -673,11 +682,11 @@ def save_nyquist_zoomed_plot(
             x_values = x_values[(x_values >= 0) & (x_values <= x_limit)]
         if y_limit is not None:
             y_values = y_values[(y_values >= 0) & (y_values <= y_limit)]
-        apply_scaled_axis(ax, "x", x_values, "Z'", r"\Omega")
-        apply_scaled_axis(ax, "y", y_values, "-Z''", r"\Omega")
+        apply_scaled_axis(ax, "x", x_values, "Z'", r"\Omega", x_label)
+        apply_scaled_axis(ax, "y", y_values, "-Z''", r"\Omega", y_label)
     else:
-        ax.set_xlabel("Z' / Ω")
-        ax.set_ylabel("-Z'' / Ω")
+        ax.set_xlabel(x_label if x_label is not None else r"$Z'$ ($\Omega/\mathrm{cm}^{2}$)")
+        ax.set_ylabel(y_label if y_label is not None else r"$-Z''$ ($\Omega/\mathrm{cm}^{2}$)")
 
     finish_and_save_plot(fig, ax, output_path)
 
@@ -690,12 +699,14 @@ def plot_combined_blocks(
     scientific_axis_labels: bool = True,
     marker_size: float = 20,
     line_width: float = 1.5,
+    axis_labels: Optional[Dict[str, Tuple[Optional[str], Optional[str]]]] = None,
 ) -> List[Path]:
     """Create the combined scatter plots."""
     filename_base = safe_filename_base(plot_name) if plot_name else "combined"
     sample_names = collect_sample_names(blocks)
     color_map = make_color_map(sample_names)
     marker_map = make_marker_map(sample_names)
+    axis_labels = axis_labels or {}
 
     saved_paths: List[Path] = []
 
@@ -704,14 +715,16 @@ def plot_combined_blocks(
         blocks,
         "z_prime",
         "neg_z_double_prime",
-        "Z' / Ω",
-        "-Z'' / Ω",
+        r"$Z'$ ($\Omega/\mathrm{cm}^{2}$)",
+        r"$-Z''$ ($\Omega/\mathrm{cm}^{2}$)",
         normal_nyquist_path,
         scientific_axis_labels=scientific_axis_labels,
         color_map=color_map,
         marker_map=marker_map,
         marker_size=marker_size,
         line_width=line_width,
+        custom_x_label=axis_labels.get("zpp_vs_zp", (None, None))[0],
+        custom_y_label=axis_labels.get("zpp_vs_zp", (None, None))[1],
     )
     saved_paths.append(normal_nyquist_path)
 
@@ -723,6 +736,8 @@ def plot_combined_blocks(
         marker_map,
         marker_size,
         line_width,
+        axis_labels.get("zpp_vs_zp_logscale", (None, None))[0],
+        axis_labels.get("zpp_vs_zp_logscale", (None, None))[1],
     )
     saved_paths.append(logscale_nyquist_path)
 
@@ -736,6 +751,8 @@ def plot_combined_blocks(
         marker_map,
         marker_size,
         line_width,
+        axis_labels.get("zpp_vs_zp_zoomed", (None, None))[0],
+        axis_labels.get("zpp_vs_zp_zoomed", (None, None))[1],
     )
     saved_paths.append(zoomed_nyquist_path)
 
@@ -744,24 +761,28 @@ def plot_combined_blocks(
             f"{filename_base}_logz_vs_logf.png",
             "log_freq",
             "log_z",
-            "log f",
-            "log |Z|",
+            r"$\log F$ (Hz)",
+            r"$\log |Z|$ ($\Omega/\mathrm{cm}^{2}$)",
+            "logz_vs_logf",
         ),
         (
             f"{filename_base}_theta_vs_logf.png",
             "log_freq",
             "neg_theta",
-            "log f",
-            "-θ / degrees",
+            r"$\log F$ (Hz)",
+            r"$-\theta$ (degrees)",
+            "theta_vs_logf",
         ),
     ]
 
-    for filename, x_col, y_col, x_label, y_label in plots:
+    for filename, x_col, y_col, x_label, y_label, plot_key in plots:
         output_path = out_dir / filename
         save_combined_scatter_plot(
             blocks, x_col, y_col, x_label, y_label, output_path,
             color_map=color_map, marker_map=marker_map,
             marker_size=marker_size, line_width=line_width,
+            custom_x_label=axis_labels.get(plot_key, (None, None))[0],
+            custom_y_label=axis_labels.get(plot_key, (None, None))[1],
         )
         saved_paths.append(output_path)
 
@@ -864,6 +885,26 @@ def main() -> None:
         default=1.5,
         help="Width of fitted-data lines. Default: 1.5.",
     )
+    # Each plot can have independent labels. argparse converts hyphens in the
+    # option names to underscores in the corresponding attribute names.
+    plot_keys = (
+        "zpp-vs-zp",
+        "zpp-vs-zp-logscale",
+        "zpp-vs-zp-zoomed",
+        "logz-vs-logf",
+        "theta-vs-logf",
+    )
+    for plot_key in plot_keys:
+        parser.add_argument(
+            f"--xlabel-{plot_key}",
+            default=None,
+            help=f"Custom x-axis label for the {plot_key} plot.",
+        )
+        parser.add_argument(
+            f"--ylabel-{plot_key}",
+            default=None,
+            help=f"Custom y-axis label for the {plot_key} plot.",
+        )
     scientific_group = parser.add_mutually_exclusive_group()
     scientific_group.add_argument(
         "--scientific-axis-labels",
@@ -926,6 +967,13 @@ def main() -> None:
         scientific_axis_labels=args.scientific_axis_labels,
         marker_size=args.marker_size,
         line_width=args.line_width,
+        axis_labels={
+            plot_key.replace("-", "_"): (
+                getattr(args, f"xlabel_{plot_key.replace('-', '_')}"),
+                getattr(args, f"ylabel_{plot_key.replace('-', '_')}"),
+            )
+            for plot_key in plot_keys
+        },
     )
 
     cleaned_path = None

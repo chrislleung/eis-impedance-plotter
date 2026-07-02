@@ -43,6 +43,65 @@ plt.rcParams["legend.fontsize"] = 12
 HEADER_ROW = 1       # second row in Excel/CSV, zero-indexed here
 DATA_START_ROW = 2   # third row in Excel/CSV, zero-indexed here
 
+AxisRange = Optional[Tuple[Optional[float], Optional[float]]]
+
+
+def parse_axis_range(range_text: Optional[str]) -> AxisRange:
+    """Parse ``min,max`` text, using infinity for an automatic bound."""
+    if range_text is None:
+        return None
+
+    error = (
+        f"Invalid axis range '{range_text}'. Use format 'min,max', "
+        "for example '0,inf' or '-5,5'."
+    )
+    parts = [part.strip().lower() for part in range_text.split(",")]
+    if len(parts) != 2 or not all(parts):
+        raise argparse.ArgumentTypeError(error)
+
+    infinity_names = {"inf", "+inf", "-inf", "infx", "+infx", "-infx",
+                      "infinity", "+infinity", "-infinity"}
+
+    def parse_bound(text: str) -> Optional[float]:
+        if text in infinity_names:
+            return None
+        try:
+            value = float(text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(error) from exc
+        if not np.isfinite(value):
+            return None
+        return value
+
+    lower, upper = parse_bound(parts[0]), parse_bound(parts[1])
+    if lower is not None and upper is not None and lower >= upper:
+        raise argparse.ArgumentTypeError(error)
+    return lower, upper
+
+
+def apply_axis_ranges(
+    ax: plt.Axes,
+    x_range: AxisRange = None,
+    y_range: AxisRange = None,
+    log_scale: bool = False,
+) -> None:
+    """Apply display-only ranges, optionally validating logarithmic axes."""
+    if log_scale:
+        finite_limits = [
+            limit
+            for axis_range in (x_range, y_range)
+            if axis_range is not None
+            for limit in axis_range
+            if limit is not None
+        ]
+        if any(limit <= 0 for limit in finite_limits):
+            raise ValueError("Invalid range for log-scale plot: limits must be positive.")
+
+    if x_range is not None:
+        ax.set_xlim(left=x_range[0], right=x_range[1])
+    if y_range is not None:
+        ax.set_ylim(bottom=y_range[0], top=y_range[1])
+
 
 ColumnMap = Dict[str, int]
 
@@ -572,6 +631,8 @@ def save_combined_scatter_plot(
     line_width: float = 1.5,
     custom_x_label: Optional[str] = None,
     custom_y_label: Optional[str] = None,
+    x_range: AxisRange = None,
+    y_range: AxisRange = None,
 ) -> None:
     """Save one combined scatter plot with every sample on the same axes."""
     # The extra width leaves room for a legend beside the square graph panel.
@@ -588,6 +649,7 @@ def save_combined_scatter_plot(
         ax.set_xlabel(custom_x_label if custom_x_label is not None else x_label)
         ax.set_ylabel(custom_y_label if custom_y_label is not None else y_label)
 
+    apply_axis_ranges(ax, x_range, y_range)
     finish_and_save_plot(fig, ax, output_path)
 
 
@@ -629,6 +691,8 @@ def save_nyquist_logscale_plot(
     line_width: float = 1.5,
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
+    x_range: AxisRange = None,
+    y_range: AxisRange = None,
 ) -> None:
     """Save a log-log Nyquist plot, using only positive x and y values."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
@@ -645,6 +709,7 @@ def save_nyquist_logscale_plot(
     # Logarithmic tick formatting is clearest when left to Matplotlib.
     ax.xaxis.offsetText.set_visible(False)
     ax.yaxis.offsetText.set_visible(False)
+    apply_axis_ranges(ax, x_range, y_range, log_scale=True)
     finish_and_save_plot(fig, ax, output_path)
 
 
@@ -659,6 +724,8 @@ def save_nyquist_zoomed_plot(
     line_width: float = 1.5,
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
+    x_range: AxisRange = None,
+    y_range: AxisRange = None,
 ) -> None:
     """Save a Nyquist plot zoomed to ignore the largest outliers."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
@@ -688,6 +755,8 @@ def save_nyquist_zoomed_plot(
         ax.set_xlabel(x_label if x_label is not None else r"$Z'$ ($\Omega/\mathrm{cm}^{2}$)")
         ax.set_ylabel(y_label if y_label is not None else r"$-Z''$ ($\Omega/\mathrm{cm}^{2}$)")
 
+    # Explicit user limits take precedence over the percentile-based zoom.
+    apply_axis_ranges(ax, x_range, y_range)
     finish_and_save_plot(fig, ax, output_path)
 
 
@@ -700,6 +769,7 @@ def plot_combined_blocks(
     marker_size: float = 20,
     line_width: float = 1.5,
     axis_labels: Optional[Dict[str, Tuple[Optional[str], Optional[str]]]] = None,
+    axis_ranges: Optional[Dict[str, Tuple[AxisRange, AxisRange]]] = None,
 ) -> List[Path]:
     """Create the combined scatter plots."""
     filename_base = safe_filename_base(plot_name) if plot_name else "combined"
@@ -707,6 +777,7 @@ def plot_combined_blocks(
     color_map = make_color_map(sample_names)
     marker_map = make_marker_map(sample_names)
     axis_labels = axis_labels or {}
+    axis_ranges = axis_ranges or {}
 
     saved_paths: List[Path] = []
 
@@ -725,6 +796,8 @@ def plot_combined_blocks(
         line_width=line_width,
         custom_x_label=axis_labels.get("zpp_vs_zp", (None, None))[0],
         custom_y_label=axis_labels.get("zpp_vs_zp", (None, None))[1],
+        x_range=axis_ranges.get("zpp_vs_zp", (None, None))[0],
+        y_range=axis_ranges.get("zpp_vs_zp", (None, None))[1],
     )
     saved_paths.append(normal_nyquist_path)
 
@@ -738,6 +811,8 @@ def plot_combined_blocks(
         line_width,
         axis_labels.get("zpp_vs_zp_logscale", (None, None))[0],
         axis_labels.get("zpp_vs_zp_logscale", (None, None))[1],
+        axis_ranges.get("zpp_vs_zp_logscale", (None, None))[0],
+        axis_ranges.get("zpp_vs_zp_logscale", (None, None))[1],
     )
     saved_paths.append(logscale_nyquist_path)
 
@@ -753,6 +828,8 @@ def plot_combined_blocks(
         line_width,
         axis_labels.get("zpp_vs_zp_zoomed", (None, None))[0],
         axis_labels.get("zpp_vs_zp_zoomed", (None, None))[1],
+        axis_ranges.get("zpp_vs_zp_zoomed", (None, None))[0],
+        axis_ranges.get("zpp_vs_zp_zoomed", (None, None))[1],
     )
     saved_paths.append(zoomed_nyquist_path)
 
@@ -783,6 +860,8 @@ def plot_combined_blocks(
             marker_size=marker_size, line_width=line_width,
             custom_x_label=axis_labels.get(plot_key, (None, None))[0],
             custom_y_label=axis_labels.get(plot_key, (None, None))[1],
+            x_range=axis_ranges.get(plot_key, (None, None))[0],
+            y_range=axis_ranges.get(plot_key, (None, None))[1],
         )
         saved_paths.append(output_path)
 
@@ -905,6 +984,18 @@ def main() -> None:
             default=None,
             help=f"Custom y-axis label for the {plot_key} plot.",
         )
+        parser.add_argument(
+            f"--xrange-{plot_key}",
+            type=parse_axis_range,
+            default=None,
+            help="Axis display range in format 'min,max'. Use inf or -inf for automatic limits.",
+        )
+        parser.add_argument(
+            f"--yrange-{plot_key}",
+            type=parse_axis_range,
+            default=None,
+            help="Axis display range in format 'min,max'. Use inf or -inf for automatic limits.",
+        )
     scientific_group = parser.add_mutually_exclusive_group()
     scientific_group.add_argument(
         "--scientific-axis-labels",
@@ -921,6 +1012,19 @@ def main() -> None:
     parser.set_defaults(scientific_axis_labels=True)
 
     args = parser.parse_args()
+
+    # Catch invalid logarithmic limits before loading data or writing plots.
+    log_ranges = (
+        args.xrange_zpp_vs_zp_logscale,
+        args.yrange_zpp_vs_zp_logscale,
+    )
+    if any(
+        limit is not None and limit <= 0
+        for axis_range in log_ranges
+        if axis_range is not None
+        for limit in axis_range
+    ):
+        parser.error("Invalid range for log-scale plot: limits must be positive.")
 
     if not any((args.input_file, args.fit_file, args.raw_file)):
         parser.error("provide input_file, --fit-file, or --raw-file")
@@ -971,6 +1075,13 @@ def main() -> None:
             plot_key.replace("-", "_"): (
                 getattr(args, f"xlabel_{plot_key.replace('-', '_')}"),
                 getattr(args, f"ylabel_{plot_key.replace('-', '_')}"),
+            )
+            for plot_key in plot_keys
+        },
+        axis_ranges={
+            plot_key.replace("-", "_"): (
+                getattr(args, f"xrange_{plot_key.replace('-', '_')}"),
+                getattr(args, f"yrange_{plot_key.replace('-', '_')}"),
             )
             for plot_key in plot_keys
         },

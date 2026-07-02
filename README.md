@@ -586,6 +586,159 @@ Add these extensions:
 --ylabel-zpp-vs-zp-logscale "-Z'' (Ω/cm²)"
 ```
 
+## Custom Axis Ranges
+
+The script supports custom axis display ranges for each graph. These options change only the visible axis limits; they do not delete or modify the underlying data.
+
+Range values use this format:
+
+```text
+"min,max"
+```
+
+Use `inf` or `-inf` when you want one side of the axis to remain automatic.
+
+Examples:
+
+```text
+"0,inf"       show values from 0 to the automatic upper limit
+"-inf,100"    show values from the automatic lower limit to 100
+"0,100000"    show values from 0 to 100000
+"-20,80"      show values from -20 to 80
+"1e3,1e9"     show values from 1000 to 1000000000
+```
+
+### Normal Nyquist Plot Ranges
+
+Use these options to control the normal `-Z'' vs Z'` plot:
+
+```text
+--xrange-zpp-vs-zp "min,max"
+--yrange-zpp-vs-zp "min,max"
+```
+
+Examples:
+
+```text
+--xrange-zpp-vs-zp "0,inf"
+--yrange-zpp-vs-zp "0,inf"
+--xrange-zpp-vs-zp "0,100000"
+--yrange-zpp-vs-zp "0,50000"
+```
+
+### Log-Scale Nyquist Plot Ranges
+
+Use these options to control the log-scale `-Z'' vs Z'` plot:
+
+```text
+--xrange-zpp-vs-zp-logscale "min,max"
+--yrange-zpp-vs-zp-logscale "min,max"
+```
+
+Examples:
+
+```text
+--xrange-zpp-vs-zp-logscale "1,1e9"
+--yrange-zpp-vs-zp-logscale "1,1e10"
+```
+
+For log-scale plots, axis limits must be positive. Values of `0` or negative values are not valid on log axes.
+
+### Zoomed Nyquist Plot Ranges
+
+Use these options to control the zoomed `-Z'' vs Z'` plot:
+
+```text
+--xrange-zpp-vs-zp-zoomed "min,max"
+--yrange-zpp-vs-zp-zoomed "min,max"
+```
+
+Examples:
+
+```text
+--xrange-zpp-vs-zp-zoomed "0,100000"
+--yrange-zpp-vs-zp-zoomed "0,50000"
+```
+
+If custom ranges are provided for the zoomed plot, they override the automatic `--zoom-percentile` display limits.
+
+### Bode Magnitude Plot Ranges
+
+Use these options to control the `log |Z| vs log F` plot:
+
+```text
+--xrange-logz-vs-logf "min,max"
+--yrange-logz-vs-logf "min,max"
+```
+
+Examples:
+
+```text
+--xrange-logz-vs-logf "0,6"
+--yrange-logz-vs-logf "0,10"
+```
+
+### Phase Plot Ranges
+
+Use these options to control the `-θ vs log F` plot:
+
+```text
+--xrange-theta-vs-logf "min,max"
+--yrange-theta-vs-logf "min,max"
+```
+
+Examples:
+
+```text
+--xrange-theta-vs-logf "0,6"
+--yrange-theta-vs-logf "-20,80"
+```
+
+### Example: Show Only Positive Nyquist Values
+
+Base command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xrange-zpp-vs-zp "0,inf"
+--yrange-zpp-vs-zp "0,inf"
+```
+
+### Example: Manually Set the Zoomed Nyquist Window
+
+Base command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add these extensions:
+
+```text
+--xrange-zpp-vs-zp-zoomed "0,100000"
+--yrange-zpp-vs-zp-zoomed "0,50000"
+```
+
+### Example: Limit the Phase Plot Range
+
+Base command:
+
+```bash
+python auto_impedance_plots.py --fit-file "data/10days.xlsx" --raw-file "data/10days-before fitting.xlsx" --out plots --name "10 days"
+```
+
+Add this extension:
+
+```text
+--yrange-theta-vs-logf "-20,80"
+```
+
+
 ## Generic CSV Plotter
 
 The project also includes `plot_csv.py`, an interactive script for simple CSV plots.

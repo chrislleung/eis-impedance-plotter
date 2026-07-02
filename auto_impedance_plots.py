@@ -6,7 +6,8 @@ Row 1: sample name in or near the first column of the block
 Row 2: Freq, Z' (a), Z'' (b), Z, teta
 Rows 3+: numeric data
 
-This script creates three combined comparison plots:
+This script creates five combined comparison plots. It supports either one
+legacy input file or separate fitted and raw Excel files.
 1. Nyquist plot: -Z'' vs Z'
 2. Bode magnitude plot: log10(Z) vs log10(Freq)
 3. Phase plot: -theta vs log10(Freq)
@@ -53,6 +54,10 @@ class BlockData:
     sample_name: str
     data: pd.DataFrame
     plot_counts: Dict[str, int]
+    source_type: str = "legacy"
+
+
+MARKERS = ["o", "s", "^", "D", "v", "P", "X", "<", ">", "h", "*"]
 
 
 def clean_name(value: object) -> str:
@@ -310,7 +315,11 @@ def count_plot_rows(data: pd.DataFrame) -> Dict[str, int]:
     }
 
 
-def build_all_blocks(raw: pd.DataFrame, blocks: List[Tuple[str, ColumnMap]]) -> List[BlockData]:
+def build_all_blocks(
+    raw: pd.DataFrame,
+    blocks: List[Tuple[str, ColumnMap]],
+    source_type: str = "legacy",
+) -> List[BlockData]:
     """Clean every detected block and keep only blocks with something to plot."""
     cleaned_blocks: List[BlockData] = []
 
@@ -322,9 +331,58 @@ def build_all_blocks(raw: pd.DataFrame, blocks: List[Tuple[str, ColumnMap]]) -> 
             print(f"Skipping {sample_name}: no valid numeric rows found for any plot.")
             continue
 
-        cleaned_blocks.append(BlockData(sample_name, data, plot_counts))
+        cleaned_blocks.append(BlockData(sample_name, data, plot_counts, source_type))
 
     return cleaned_blocks
+
+
+def load_impedance_blocks(
+    path: Path,
+    sheet: Optional[str],
+    source_type: str,
+    debug_headers: bool = False,
+) -> List[BlockData]:
+    """Read, detect, and clean every impedance block in one source file."""
+    raw_table = read_table(path, sheet=sheet)
+    detected = find_impedance_blocks(raw_table, debug_headers=debug_headers)
+    if not detected:
+        raise ValueError(
+            f"No impedance blocks found in {path}. Expected columns like: "
+            "Freq, Z', Z'', Z, teta."
+        )
+    return build_all_blocks(raw_table, detected, source_type)
+
+
+def collect_sample_names(blocks: List[BlockData]) -> List[str]:
+    """Return unique sample names in their first-seen order."""
+    return list(dict.fromkeys(block.sample_name for block in blocks))
+
+
+def sample_identity(sample_name: str) -> str:
+    """Normalize harmless label differences when matching fit and raw samples."""
+    identity = re.sub(r"[^a-z0-9]+", "", sample_name.lower())
+    return identity or sample_name.lower()
+
+
+def make_color_map(sample_names: List[str]) -> Dict[str, object]:
+    """Assign one color to each sample, shared by fit and raw data."""
+    colors = plt.get_cmap("tab20").colors
+    identities = list(dict.fromkeys(sample_identity(name) for name in sample_names))
+    identity_colors = {
+        identity: colors[index % len(colors)]
+        for index, identity in enumerate(identities)
+    }
+    return {name: identity_colors[sample_identity(name)] for name in sample_names}
+
+
+def make_marker_map(sample_names: List[str]) -> Dict[str, str]:
+    """Assign a repeatable hollow-marker shape to each sample."""
+    identities = list(dict.fromkeys(sample_identity(name) for name in sample_names))
+    identity_markers = {
+        identity: MARKERS[index % len(MARKERS)]
+        for index, identity in enumerate(identities)
+    }
+    return {name: identity_markers[sample_identity(name)] for name in sample_names}
 
 
 def legend_options(sample_count: int) -> Dict[str, object]:
@@ -441,8 +499,14 @@ def draw_blocks_on_axes(
     x_col: str,
     y_col: str,
     positive_only: bool = False,
+    color_map: Optional[Dict[str, object]] = None,
+    marker_map: Optional[Dict[str, str]] = None,
+    marker_size: float = 20,
+    line_width: float = 1.5,
 ) -> None:
-    """Draw every sample block on one set of axes."""
+    """Draw fits as lines, raw data as hollow markers, and legacy as before."""
+    color_map = color_map or make_color_map(collect_sample_names(blocks))
+    marker_map = marker_map or make_marker_map(collect_sample_names(blocks))
     for block in blocks:
         plot_data = block.data.dropna(subset=[x_col, y_col])
 
@@ -453,7 +517,24 @@ def draw_blocks_on_axes(
         if plot_data.empty:
             continue
 
-        ax.scatter(plot_data[x_col], plot_data[y_col], s=22, label=block.sample_name)
+        color = color_map[block.sample_name]
+        if block.source_type == "fit":
+            ax.plot(
+                plot_data[x_col], plot_data[y_col], linestyle="-", linewidth=line_width,
+                color=color, label=f"{block.sample_name} fit",
+            )
+        elif block.source_type == "raw":
+            ax.scatter(
+                plot_data[x_col], plot_data[y_col], marker=marker_map[block.sample_name],
+                facecolors="none", edgecolors=color, linewidths=1.2, s=marker_size,
+                label=f"{block.sample_name} raw",
+            )
+        else:
+            # Preserve the original one-file filled-scatter behavior.
+            ax.scatter(
+                plot_data[x_col], plot_data[y_col], s=22, color=color,
+                label=block.sample_name,
+            )
 
 
 def finish_and_save_plot(
@@ -482,12 +563,19 @@ def save_combined_scatter_plot(
     y_label: str,
     output_path: Path,
     scientific_axis_labels: bool = False,
+    color_map: Optional[Dict[str, object]] = None,
+    marker_map: Optional[Dict[str, str]] = None,
+    marker_size: float = 20,
+    line_width: float = 1.5,
 ) -> None:
     """Save one combined scatter plot with every sample on the same axes."""
     # The extra width leaves room for a legend beside the square graph panel.
     fig, ax = plt.subplots(figsize=(8.5, 6))
 
-    draw_blocks_on_axes(ax, blocks, x_col, y_col)
+    draw_blocks_on_axes(
+        ax, blocks, x_col, y_col, color_map=color_map, marker_map=marker_map,
+        marker_size=marker_size, line_width=line_width,
+    )
     if scientific_axis_labels:
         apply_scaled_axis(ax, "x", collect_axis_values(blocks, x_col), "Z'", r"\Omega")
         apply_scaled_axis(ax, "y", collect_axis_values(blocks, y_col), "-Z''", r"\Omega")
@@ -530,11 +618,19 @@ def get_zoom_limits(blocks: List[BlockData], percentile: float) -> Tuple[Optiona
 def save_nyquist_logscale_plot(
     blocks: List[BlockData],
     output_path: Path,
+    color_map: Dict[str, object],
+    marker_map: Dict[str, str],
+    marker_size: float = 20,
+    line_width: float = 1.5,
 ) -> None:
     """Save a log-log Nyquist plot, using only positive x and y values."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
 
-    draw_blocks_on_axes(ax, blocks, "z_prime", "neg_z_double_prime", positive_only=True)
+    draw_blocks_on_axes(
+        ax, blocks, "z_prime", "neg_z_double_prime", positive_only=True,
+        color_map=color_map, marker_map=marker_map,
+        marker_size=marker_size, line_width=line_width,
+    )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Z' / Ω")
@@ -550,11 +646,19 @@ def save_nyquist_zoomed_plot(
     output_path: Path,
     zoom_percentile: float,
     scientific_axis_labels: bool,
+    color_map: Dict[str, object],
+    marker_map: Dict[str, str],
+    marker_size: float = 20,
+    line_width: float = 1.5,
 ) -> None:
     """Save a Nyquist plot zoomed to ignore the largest outliers."""
     fig, ax = plt.subplots(figsize=(8.5, 6))
 
-    draw_blocks_on_axes(ax, blocks, "z_prime", "neg_z_double_prime")
+    draw_blocks_on_axes(
+        ax, blocks, "z_prime", "neg_z_double_prime",
+        color_map=color_map, marker_map=marker_map,
+        marker_size=marker_size, line_width=line_width,
+    )
 
     x_limit, y_limit = get_zoom_limits(blocks, zoom_percentile)
     if x_limit is not None:
@@ -584,9 +688,14 @@ def plot_combined_blocks(
     plot_name: Optional[str] = None,
     zoom_percentile: float = 90,
     scientific_axis_labels: bool = True,
+    marker_size: float = 20,
+    line_width: float = 1.5,
 ) -> List[Path]:
     """Create the combined scatter plots."""
     filename_base = safe_filename_base(plot_name) if plot_name else "combined"
+    sample_names = collect_sample_names(blocks)
+    color_map = make_color_map(sample_names)
+    marker_map = make_marker_map(sample_names)
 
     saved_paths: List[Path] = []
 
@@ -599,6 +708,10 @@ def plot_combined_blocks(
         "-Z'' / Ω",
         normal_nyquist_path,
         scientific_axis_labels=scientific_axis_labels,
+        color_map=color_map,
+        marker_map=marker_map,
+        marker_size=marker_size,
+        line_width=line_width,
     )
     saved_paths.append(normal_nyquist_path)
 
@@ -606,6 +719,10 @@ def plot_combined_blocks(
     save_nyquist_logscale_plot(
         blocks,
         logscale_nyquist_path,
+        color_map,
+        marker_map,
+        marker_size,
+        line_width,
     )
     saved_paths.append(logscale_nyquist_path)
 
@@ -615,6 +732,10 @@ def plot_combined_blocks(
         zoomed_nyquist_path,
         zoom_percentile,
         scientific_axis_labels,
+        color_map,
+        marker_map,
+        marker_size,
+        line_width,
     )
     saved_paths.append(zoomed_nyquist_path)
 
@@ -637,28 +758,53 @@ def plot_combined_blocks(
 
     for filename, x_col, y_col, x_label, y_label in plots:
         output_path = out_dir / filename
-        save_combined_scatter_plot(blocks, x_col, y_col, x_label, y_label, output_path)
+        save_combined_scatter_plot(
+            blocks, x_col, y_col, x_label, y_label, output_path,
+            color_map=color_map, marker_map=marker_map,
+            marker_size=marker_size, line_width=line_width,
+        )
         saved_paths.append(output_path)
 
     return saved_paths
 
 
 def save_cleaned_csv(blocks: List[BlockData], out_dir: Path) -> Path:
-    """Save one combined cleaned CSV with a sample column."""
+    """Save one combined cleaned CSV with sample and source columns."""
     cleaned_path = out_dir / "combined_cleaned_impedance_data.csv"
-    combined = pd.concat([block.data for block in blocks], ignore_index=True)
+    frames = []
+    for block in blocks:
+        frame = block.data.copy()
+        frame.insert(1, "source_type", block.source_type)
+        frames.append(frame)
+    combined = pd.concat(frames, ignore_index=True)
     combined.to_csv(cleaned_path, index=False)
     return cleaned_path
 
 
-def print_summary(blocks: List[BlockData], saved_plots: List[Path], cleaned_path: Optional[Path]) -> None:
+def print_summary(
+    blocks: List[BlockData],
+    saved_plots: List[Path],
+    cleaned_path: Optional[Path],
+    fit_path: Optional[Path] = None,
+    raw_path: Optional[Path] = None,
+) -> None:
     """Print a short terminal summary for the user."""
-    print(f"\nValid blocks found: {len(blocks)}")
+    if fit_path is not None:
+        print(f"\nFitted file: {fit_path}")
+    if raw_path is not None:
+        print(f"Raw file: {raw_path}")
+
+    if fit_path is not None or raw_path is not None:
+        print(f"Fitted blocks found: {sum(b.source_type == 'fit' for b in blocks)}")
+        print(f"Raw blocks found: {sum(b.source_type == 'raw' for b in blocks)}")
+    else:
+        print(f"\nValid blocks found: {len(blocks)}")
 
     for block in blocks:
         counts = block.plot_counts
         print(
-            f"- {block.sample_name}: "
+            f"- {block.sample_name}"
+            f"{' ' + block.source_type if block.source_type != 'legacy' else ''}: "
             f"{counts['zpp_vs_zp']} rows for -Z'' vs Z', "
             f"{counts['logz_vs_logf']} rows for log Z vs log F, "
             f"{counts['theta_vs_logf']} rows for -theta vs log F"
@@ -678,7 +824,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Automatically plot impedance scatter plots from repeated 5-column CSV/Excel blocks."
     )
-    parser.add_argument("input_file", help="Path to the .csv, .xlsx, or .xls file")
+    parser.add_argument(
+        "input_file", nargs="?", help="Legacy path to one .csv, .xlsx, or .xls file"
+    )
+    parser.add_argument("--fit-file", help="Path to a fitted-data .xlsx file")
+    parser.add_argument("--raw-file", help="Path to a raw/unfitted-data .xlsx file")
     parser.add_argument("--sheet", default=None, help="Excel sheet name. Not needed for CSV files.")
     parser.add_argument("--out", default="plots", help="Output folder for generated PNG plots")
     parser.add_argument(
@@ -702,6 +852,18 @@ def main() -> None:
         default=90,
         help="Percentile used for zoomed Nyquist axis limits. Default: 90.",
     )
+    parser.add_argument(
+        "--marker-size",
+        type=float,
+        default=20,
+        help="Size of raw/unfitted hollow markers. Default: 20.",
+    )
+    parser.add_argument(
+        "--line-width",
+        type=float,
+        default=1.5,
+        help="Width of fitted-data lines. Default: 1.5.",
+    )
     scientific_group = parser.add_mutually_exclusive_group()
     scientific_group.add_argument(
         "--scientific-axis-labels",
@@ -719,20 +881,36 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    input_path = Path(args.input_file)
+    if not any((args.input_file, args.fit_file, args.raw_file)):
+        parser.error("provide input_file, --fit-file, or --raw-file")
+    if args.marker_size <= 0:
+        parser.error("--marker-size must be greater than 0")
+    if args.line_width <= 0:
+        parser.error("--line-width must be greater than 0")
+
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    raw = read_table(input_path, sheet=args.sheet)
-    blocks = find_impedance_blocks(raw, debug_headers=args.debug_headers)
+    fit_path = Path(args.fit_file) if args.fit_file else None
+    raw_path = Path(args.raw_file) if args.raw_file else None
 
-    if not blocks:
-        raise ValueError(
-            "No impedance blocks found. Expected a header row containing columns like: "
-            "Freq, Z' (a), Z'' (b), Z, teta."
+    # Explicit fit/raw options select comparison mode. A positional file is
+    # retained for backward compatibility and is used only in legacy mode.
+    if fit_path is not None or raw_path is not None:
+        cleaned_blocks: List[BlockData] = []
+        if fit_path is not None:
+            cleaned_blocks.extend(load_impedance_blocks(
+                fit_path, args.sheet, "fit", args.debug_headers
+            ))
+        if raw_path is not None:
+            cleaned_blocks.extend(load_impedance_blocks(
+                raw_path, args.sheet, "raw", args.debug_headers
+            ))
+    else:
+        input_path = Path(args.input_file)
+        cleaned_blocks = load_impedance_blocks(
+            input_path, args.sheet, "legacy", args.debug_headers
         )
-
-    cleaned_blocks = build_all_blocks(raw, blocks)
 
     if not cleaned_blocks:
         raise ValueError("No valid numeric impedance data found in the detected blocks.")
@@ -746,13 +924,15 @@ def main() -> None:
         plot_name=args.name,
         zoom_percentile=args.zoom_percentile,
         scientific_axis_labels=args.scientific_axis_labels,
+        marker_size=args.marker_size,
+        line_width=args.line_width,
     )
 
     cleaned_path = None
     if args.cleaned_csv:
         cleaned_path = save_cleaned_csv(cleaned_blocks, out_dir)
 
-    print_summary(cleaned_blocks, saved_plots, cleaned_path)
+    print_summary(cleaned_blocks, saved_plots, cleaned_path, fit_path, raw_path)
 
 
 if __name__ == "__main__":
